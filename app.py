@@ -322,7 +322,6 @@ def main():
                 bg_color = kolor + "33" if len(kolor) == 7 else kolor
 
                 for i, r in plan_df.iterrows():
-                    # Zmienione proporcje kolumn, żeby "Powtórzenia" i "Obciążenie" ładnie się mieściły
                     c1, c2, c3, c4, c5, c6 = st.columns([2.5, 0.9, 1.2, 1.2, 1.2, 1.5], vertical_alignment="center")
 
                     styled_name = f"""
@@ -339,7 +338,6 @@ def main():
                     """
                     c1.markdown(styled_name, unsafe_allow_html=True)
 
-                    # NOWE ETYKIETY: Serie, Powtórzenia, Obciążenie
                     s = c2.number_input("Serie", value=int(r['serie']), key=f"s_{r['id']}_{rc}")
                     p = c3.number_input("Powtórzenia", value=int(r['powtorzenia']), key=f"p_{r['id']}_{rc}")
                     w = c4.number_input("Obciążenie", value=float(r['obciazenie']), key=f"w_{r['id']}_{rc}")
@@ -374,9 +372,17 @@ def main():
         conn.close()
 
         if not hist.empty:
-            wykres_df = hist.groupby('data')['punkty_pompy'].sum().reset_index()
-            st.plotly_chart(px.bar(wykres_df, x='data', y='punkty_pompy', color_discrete_sequence=['#FFD700']),
-                            use_container_width=True)
+            # Grupujemy teraz również po 'kategoria', żeby rozróżnić kolory na wykresie
+            wykres_df = hist.groupby(['data', 'kategoria'])['punkty_pompy'].sum().reset_index()
+            
+            # Słownik przypisujący nazwę kategorii do jej koloru
+            color_map = dict(zip(categories_df['name'], categories_df['color']))
+            
+            # Wykres uwzględniający kolory kategorii
+            fig = px.bar(wykres_df, x='data', y='punkty_pompy', color='kategoria', color_discrete_map=color_map, 
+                         title="🔥 Suma punktów pompy w dniach")
+            
+            st.plotly_chart(fig, use_container_width=True)
 
             st.markdown("### 📅 Historia Twoich Treningów")
             st.markdown("Kliknij w datę, aby rozwinąć szczegóły wpisu.")
