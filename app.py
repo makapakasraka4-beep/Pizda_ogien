@@ -37,15 +37,14 @@ except:
     st.error("Błąd: Nie skonfigurowano bazy danych w Streamlit Secrets (DB_URI).")
     st.stop()
 
+# --- TURBO DOŁADOWANIE (CACHE) ---
+
+@st.cache_resource
 def get_db_connection():
+    # Utrzymuje stałe połączenie, zamiast tworzyć je od nowa przy każdym kliknięciu
     return psycopg2.connect(DB_URI)
 
-def make_hashes(password):
-    return hashlib.sha256(str.encode(password)).hexdigest()
-
-def check_hashes(password, hashed_text):
-    return make_hashes(password) == hashed_text
-
+@st.cache_data(ttl=600)  # Odświeżaj strukturę co 10 minut
 def init_db():
     conn = get_db_connection()
     c = conn.cursor()
@@ -65,14 +64,21 @@ def init_db():
             c.execute("INSERT INTO categories (name, username, icon, color) VALUES (%s, 'Główny', %s, %s)", (nazwa, ikona, kolor))
 
     conn.commit()
-    conn.close()
+    # Nie zamykamy conn, bo st.cache_resource musi go trzymać żywego
+
+# --- LOGIKA APLIKACJI ---
+
+def make_hashes(password):
+    return hashlib.sha256(str.encode(password)).hexdigest()
+
+def check_hashes(password, hashed_text):
+    return make_hashes(password) == hashed_text
 
 def get_latest_weight(usr):
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("SELECT waga FROM pomiary WHERE username=%s ORDER BY data DESC LIMIT 1", (usr,))
     res = c.fetchone()
-    conn.close()
     return res[0] if res else 0.0
 
 def auth_screen():
@@ -107,7 +113,6 @@ def auth_screen():
                     st.session_state.username = u
                     st.rerun()
                 else: st.error("Błędny login lub hasło")
-                conn.close()
         with tab_reg:
             nu = st.text_input("Nowy Login", key="reg_u")
             np = st.text_input("Nowe Hasło", type="password", key="reg_p")
@@ -122,7 +127,6 @@ def auth_screen():
                         for nazwa, ikona, kolor in default_cats:
                             c.execute("INSERT INTO categories (name, username, icon, color) VALUES (%s, %s, %s, %s)", (nazwa, nu, ikona, kolor))
                         conn.commit(); st.success("Konto gotowe! Zaloguj się.")
-                    conn.close()
     return False
 
 def render_zarzadzanie_planem(kategoria_nazwa, ikona, kolor):
@@ -195,7 +199,6 @@ def render_zarzadzanie_planem(kategoria_nazwa, ikona, kolor):
                 conn.commit(); st.rerun()
     if edit_id:
         if st.button("Anuluj edycję"): st.session_state[edit_key] = None; st.rerun()
-    conn.close()
 
 def main():
     init_db()
@@ -208,7 +211,6 @@ def main():
 
     conn = get_db_connection()
     categories_df = pd.read_sql_query("SELECT name, icon, color FROM categories WHERE username = %s", conn, params=(usr,))
-    conn.close()
 
     cat_tabs_names = [f"{row['icon']} {row['name']}" for _, row in categories_df.iterrows()]
     tabs_names = ["📋 Dzisiejszy Trening", "📈 Statystyki", "📏 Pomiary"] + cat_tabs_names + ["⚙️ Ustawienia Planów"]
@@ -227,7 +229,7 @@ def main():
             st.markdown(f"<h3 style='color: {kolor}; margin-bottom: 0px;'>{ikona} Trening: {wybrany}</h3>", unsafe_allow_html=True)
             st.markdown("---")
 
-            conn = get_db_connection(); plan_df = pd.read_sql_query("SELECT * FROM plan WHERE kategoria=%s AND username=%s", conn, params=(wybrany, usr)); conn.close()
+            plan_df = pd.read_sql_query("SELECT * FROM plan WHERE kategoria=%s AND username=%s", conn, params=(wybrany, usr))
             if plan_df.empty: st.info("Ten plan jest pusty.")
             else:
                 dt = st.date_input("Data", datetime.today()); zrobione = []; rc = st.session_state.reset_counter
@@ -269,7 +271,7 @@ def main():
                 st.markdown("<br>", unsafe_allow_html=True)
                 if st.button("🔥 ZAPISZ TRENING 🔥", type="primary", use_container_width=True):
                     if zrobione:
-                        conn = get_db_connection(); c = conn.cursor()
+                        c = conn.cursor()
                         for z in zrobione:
                             if z['nc'] == 1:
                                 pts = z['s'] * z['cz'] * z['pr']
@@ -283,14 +285,11 @@ def main():
                                       (str(dt), wybrany, z['c'], z['s'], z['p'], z['w'], z['pr'], pts, z['mw'], z['nc'], z['cz'], usr))
                             c.execute("UPDATE plan SET serie=%s, powtorzenia=%s, obciazenie=%s, pompa_rate=%s, masa_wlasna=%s, na_czas=%s, czas=%s WHERE cwiczenie=%s AND kategoria=%s AND username=%s",
                                       (z['s'], z['p'], z['w'], z['pr'], z['mw'], z['nc'], z['cz'], z['c'], wybrany, usr))
-                        conn.commit(); conn.close(); st.session_state.reset_counter += 1; st.rerun()
+                        conn.commit(); st.session_state.reset_counter += 1; st.rerun()
 
-    # 2. STATYSTYKI Z ROZWIJANĄ HISTORIĄ
+    # 2. STATYSTYKI
     with all_tabs[1]:
-        conn = get_db_connection()
         hist = pd.read_sql_query("SELECT * FROM historia WHERE username=%s ORDER BY data DESC", conn, params=(usr,))
-        conn.close()
-
         if not hist.empty:
             wykres_df = hist.groupby(['data', 'kategoria'])['punkty_pompy'].sum().reset_index()
             color_map = dict(zip(categories_df['name'], categories_df['color']))
@@ -298,14 +297,11 @@ def main():
             st.plotly_chart(fig, use_container_width=True)
 
             st.markdown("### 📅 Historia Twoich Treningów")
-            st.markdown("Kliknij w datę, aby rozwinąć szczegóły wpisu.")
-
             unique_dates = hist['data'].unique()
             for d_str in unique_dates:
                 df_day = hist[hist['data'] == d_str]
                 cats_of_day = ", ".join(df_day['kategoria'].unique())
                 suma_pompy_dnia = df_day['punkty_pompy'].sum()
-
                 try:
                     d_obj = datetime.strptime(d_str, "%Y-%m-%d")
                     d_format = d_obj.strftime("%d.%m.%Y")
@@ -313,111 +309,64 @@ def main():
 
                 with st.expander(f"🗓️ {d_format} | Trening: {cats_of_day} | 🔥 Pompa: {suma_pompy_dnia}"):
                     display_df = df_day[['cwiczenie', 'serie', 'powtorzenia', 'obciazenie', 'masa_wlasna', 'na_czas', 'czas']].copy()
-                    
                     def format_obc(row):
-                        if row['na_czas'] == 1:
-                            return f"⏱️ {row['czas']}s"
-                        if row['masa_wlasna'] == 1:
-                            return f"Masa wł. + {row['obciazenie']}kg" if row['obciazenie'] > 0 else "Masa wł."
+                        if row['na_czas'] == 1: return f"⏱️ {row['czas']}s"
+                        if row['masa_wlasna'] == 1: return f"Masa wł. + {row['obciazenie']}kg" if row['obciazenie'] > 0 else "Masa wł."
                         return f"{row['obciazenie']}kg"
-                        
                     display_df['Obciążenie/Czas'] = display_df.apply(format_obc, axis=1)
-                    display_df = display_df[['cwiczenie', 'serie', 'powtorzenia', 'Obciążenie/Czas']]
-                    display_df.columns = ['Ćwiczenie', 'Serie', 'Powtórzenia', 'Obciążenie/Czas']
-                    
-                    st.dataframe(display_df, hide_index=True, use_container_width=True)
-
-                    st.markdown("<br><small style='color: gray;'>Zarządzanie wpisami (usuwanie pomyłek):</small>", unsafe_allow_html=True)
+                    st.dataframe(display_df[['cwiczenie', 'serie', 'powtorzenia', 'Obciążenie/Czas']], hide_index=True, use_container_width=True)
                     for i, r in df_day.iterrows():
-                        c1, c2 = st.columns([4, 1])
-                        
-                        if r['na_czas'] == 1:
-                            obc_str = f"⏱️ {r['czas']}s"
-                            c1.write(f"🗑️ {r['cwiczenie']} ({r['serie']}x | {obc_str})")
-                        else:
-                            obc_str = f"Masa wł. + {r['obciazenie']}kg" if r['masa_wlasna'] and r['obciazenie'] > 0 else ("Masa wł." if r['masa_wlasna'] else f"{r['obciazenie']}kg")
-                            c1.write(f"🗑️ {r['cwiczenie']} ({r['serie']}x{r['powtorzenia']} | {obc_str})")
-                            
-                        if c2.button("Usuń", key=f"dh_{r['id']}"):
-                            conn = get_db_connection(); c = conn.cursor()
-                            c.execute("DELETE FROM historia WHERE id=%s", (r['id'],))
-                            conn.commit(); conn.close(); st.rerun()
-        else: st.info("Brak historii treningów. Zrób pierwszy trening!")
+                        if st.button("Usuń", key=f"dh_{r['id']}"):
+                            c = conn.cursor(); c.execute("DELETE FROM historia WHERE id=%s", (r['id'],)); conn.commit(); st.rerun()
+        else: st.info("Brak historii treningów.")
 
     # 3. POMIARY
     with all_tabs[2]:
         with st.form("pomiar"):
             c1, c2 = st.columns(2); d_p = c1.date_input("Data"); w_p = c2.number_input("Waga (kg)", 30.0, 200.0, 80.0, 0.1)
             if st.form_submit_button("DODAJ"):
-                conn = get_db_connection(); c = conn.cursor(); c.execute("INSERT INTO pomiary (data, waga, username) VALUES (%s,%s,%s)", (str(d_p), w_p, usr)); conn.commit(); st.rerun()
-        conn = get_db_connection(); p_df = pd.read_sql_query("SELECT * FROM pomiary WHERE username=%s ORDER BY data ASC", conn, params=(usr,)); conn.close()
+                c = conn.cursor(); c.execute("INSERT INTO pomiary (data, waga, username) VALUES (%s,%s,%s)", (str(d_p), w_p, usr)); conn.commit(); st.rerun()
+        p_df = pd.read_sql_query("SELECT * FROM pomiary WHERE username=%s ORDER BY data ASC", conn, params=(usr,))
         if not p_df.empty: st.plotly_chart(px.line(p_df, x='data', y='waga', markers=True, color_discrete_sequence=['#FFD700']), use_container_width=True)
 
     # 4. DYNAMICZNE ZAKŁADKI PLANÓW
     for i, row in categories_df.iterrows():
         with all_tabs[3 + i]: render_zarzadzanie_planem(row['name'], row['icon'], row['color'])
 
-    # 5. USTAWIENIA PLANÓW (EDYCJA I ZARZĄDZANIE)
+    # 5. USTAWIENIA PLANÓW
     with all_tabs[-1]:
         edit_cat_key = f"edit_cat_{usr}"
         if edit_cat_key not in st.session_state: st.session_state[edit_cat_key] = None
         edit_cat_name = st.session_state[edit_cat_key]
-
-        d_cat_name, d_cat_icon, d_cat_color = "", "🏋️", "#FFD700"
-
+        d_cat_name, d_cat_icon, d_cat_color = ("", "🏋️", "#FFD700")
         if edit_cat_name:
             cat_data = categories_df[categories_df['name'] == edit_cat_name].iloc[0]
             d_cat_name, d_cat_icon, d_cat_color = cat_data['name'], cat_data['icon'], cat_data['color']
 
-        st.subheader("⚙️ " + ("Edytuj plan" if edit_cat_name else "Dodaj nowy plan do swojego zestawu"))
-
+        st.subheader("⚙️ " + ("Edytuj plan" if edit_cat_name else "Dodaj nowy plan"))
         with st.form("cat_form", clear_on_submit=True):
             col_1, col_2, col_3 = st.columns([3, 1, 1])
-            new_cat_name = col_1.text_input("Nazwa planu (np. Cardio)", value=d_cat_name)
-
-            ikony_do_wyboru = ["🏋️", "🏃", "🤸", "💪", "🦵", "✋", "✊", "🧘", "🚲", "🏊", "🔥", "🦍", "🦖", "🏆"]
-            icon_idx = ikony_do_wyboru.index(d_cat_icon) if d_cat_icon in ikony_do_wyboru else 0
-            new_cat_icon = col_2.selectbox("Ikona", ikony_do_wyboru, index=icon_idx)
-            new_cat_color = col_3.color_picker("Wybierz kolor przewodni", d_cat_color)
-
-            if st.form_submit_button("💾 ZAPISZ ZMIANY" if edit_cat_name else "DODAJ PLAN"):
+            new_cat_name = col_1.text_input("Nazwa planu", value=d_cat_name)
+            ikony_do_wyboru = ["🏋️", "🏃", "💪", "🦵", "✋", "✊", "🧘", "🚲", "🔥", "🦍", "🦖", "🏆"]
+            new_cat_icon = col_2.selectbox("Ikona", ikony_do_wyboru, index=ikony_do_wyboru.index(d_cat_icon) if d_cat_icon in ikony_do_wyboru else 0)
+            new_cat_color = col_3.color_picker("Kolor", d_cat_color)
+            if st.form_submit_button("💾 ZAPISZ"):
                 if new_cat_name:
-                    conn = get_db_connection(); c = conn.cursor()
+                    c = conn.cursor()
                     if edit_cat_name:
-                        if new_cat_name != edit_cat_name:
-                            c.execute("SELECT * FROM categories WHERE name=%s AND username=%s", (new_cat_name, usr))
-                            if c.fetchone(): st.error("Masz już inny plan o takiej nazwie!"); conn.close(); st.stop()
-
                         c.execute("UPDATE categories SET name=%s, icon=%s, color=%s WHERE name=%s AND username=%s", (new_cat_name, new_cat_icon, new_cat_color, edit_cat_name, usr))
                         c.execute("UPDATE plan SET kategoria=%s WHERE kategoria=%s AND username=%s", (new_cat_name, edit_cat_name, usr))
                         c.execute("UPDATE historia SET kategoria=%s WHERE kategoria=%s AND username=%s", (new_cat_name, edit_cat_name, usr))
-                        conn.commit(); st.session_state[edit_cat_key] = None; st.success("Plan zaktualizowany!")
+                        st.session_state[edit_cat_key] = None
                     else:
-                        c.execute("SELECT * FROM categories WHERE name=%s AND username=%s", (new_cat_name, usr))
-                        if c.fetchone(): st.error("Masz już plan o takiej nazwie!")
-                        else:
-                            c.execute("INSERT INTO categories (name, username, icon, color) VALUES (%s, %s, %s, %s)", (new_cat_name, usr, new_cat_icon, new_cat_color))
-                            conn.commit(); st.success("Dodano!")
-                    conn.close(); st.rerun()
+                        c.execute("INSERT INTO categories (name, username, icon, color) VALUES (%s, %s, %s, %s)", (new_cat_name, usr, new_cat_icon, new_cat_color))
+                    conn.commit(); st.rerun()
 
-        if edit_cat_name:
-            if st.button("❌ Anuluj edycję planu"): st.session_state[edit_cat_key] = None; st.rerun()
-
-        st.divider()
-        st.write("Twoje plany (możesz usunąć puste lub je edytować):")
         for idx, row in categories_df.iterrows():
             c_1, c_2, c_3 = st.columns([3, 0.8, 0.8], vertical_alignment="center")
-            c_1.markdown(f"<span style='color:{row['color']}; font-weight:bold; font-size: 18px;'>{row['icon']} {row['name']}</span>", unsafe_allow_html=True)
-            with c_2:
-                if st.button("Edytuj", key=f"ecat_{row['name']}"): st.session_state[edit_cat_key] = row['name']; st.rerun()
-            with c_3:
-                if st.button("Usuń", key=f"del_cat_{row['name']}"):
-                    conn = get_db_connection(); c = conn.cursor()
-                    c.execute("SELECT COUNT(*) FROM plan WHERE kategoria=%s AND username=%s", (row['name'], usr))
-                    if c.fetchone()[0] > 0: st.error("Nie można usunąć planu, który zawiera ćwiczenia!")
-                    else:
-                        c.execute("DELETE FROM categories WHERE name=%s AND username=%s", (row['name'], usr))
-                        conn.commit(); st.rerun()
-                    conn.close()
+            c_1.write(f"{row['icon']} {row['name']}")
+            if c_2.button("Edytuj", key=f"ecat_{row['name']}"): st.session_state[edit_cat_key] = row['name']; st.rerun()
+            if c_3.button("Usuń", key=f"del_cat_{row['name']}"):
+                c = conn.cursor(); c.execute("DELETE FROM categories WHERE name=%s AND username=%s", (row['name'], usr)); conn.commit(); st.rerun()
 
 if __name__ == "__main__": main()
