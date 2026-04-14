@@ -29,16 +29,23 @@ div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"]:nth-ch
     font-weight: 900;
 }
 
-/* --- NOWY STYL DLA ROZWIJANYCH RAMEK (EXPANDER) --- */
+/* --- POPRAWIONY STYL DLA ROZWIJANYCH RAMEK (EXPANDER) --- */
 div[data-testid="stExpander"] {
-    background-color: rgba(255, 255, 255, 0.05);
-    border-radius: 10px;
-    border-left: 5px solid #FF4B4B; /* Domyślny kolor boczny */
+    border: 2px solid #FF4B4B !important; /* Czerwona ramka dookoła */
+    border-radius: 10px !important;
+    background-color: rgba(255, 75, 75, 0.05) !important; /* Delikatne czerwone tło w środku */
+    overflow: hidden !important; /* Zapobiega wystawaniu tła poza zaokrąglone rogi */
+}
+div[data-testid="stExpander"] summary {
+    background-color: #FF4B4B !important; /* Główny czerwony pasek nagłówka */
 }
 div[data-testid="stExpander"] summary p {
-    font-weight: 800 !important;
+    font-weight: 900 !important;
     font-size: 18px !important;
-    color: #ffffff;
+    color: #ffffff !important; /* Wymuszony biały tekst na czerwonym tle */
+}
+div[data-testid="stExpander"] summary svg {
+    color: #ffffff !important; /* Wymuszona biała strzałka */
 }
 </style>
 """, unsafe_allow_html=True)
@@ -293,14 +300,10 @@ def main():
                 # Przechodzimy przez każde ćwiczenie
                 for i, r in plan_df.iterrows():
                     # --- ARCHITEKTURA MOBILNA ---
-                    # Podział na dwie kolumny: z lewej pole do rozwijania (expander), z prawej przycisk "Zrobione"
                     col_expander, col_done = st.columns([3, 1], vertical_alignment="center")
 
                     with col_expander:
-                        # Zamiast długiego paska bocznego dynamicznie ustawiamy kolor ramki w stylach wyżej
-                        # Używamy natywnego st.expander, który tworzy estetyczny akordeon
                         with st.expander(f"🏋️ {r['cwiczenie']}"):
-                            # Parametry dzielimy na 2 w rzędzie, żeby duże pola łatwo klikało się palcem
                             if r['na_czas'] == 1:
                                 c_in1, c_in2 = st.columns(2)
                                 s = c_in1.number_input("Serie", value=int(r['serie']), key=f"s_{r['id']}_{rc}")
@@ -321,12 +324,10 @@ def main():
                                 cz = 0
 
                     with col_done:
-                        # Przycisk "Zrobione" jest ciągle na wierzchu i łatwo w niego kliknąć
                         if st.toggle("Zrobione", key=f"z_{r['id']}_{rc}"):
                             zrobione.append({'c': r['cwiczenie'], 's': s, 'p': p, 'w': w, 'pr': pompa, 'mw': int(mw),
                                              'nc': int(r['na_czas']), 'cz': cz})
                     
-                    # Cienka linia przerywnikowa dla lepszej czytelności między kolejnymi ćwiczeniami
                     st.markdown("<hr style='margin: 0.2em 0px; opacity: 0.2;'>", unsafe_allow_html=True)
 
                 st.markdown("<br>", unsafe_allow_html=True)
