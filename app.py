@@ -29,23 +29,27 @@ div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"]:nth-ch
     font-weight: 900;
 }
 
-/* --- POPRAWIONY STYL DLA ROZWIJANYCH RAMEK (EXPANDER) --- */
-div[data-testid="stExpander"] {
-    border: 2px solid #FF4B4B !important; /* Czerwona ramka dookoła */
-    border-radius: 10px !important;
-    background-color: rgba(255, 75, 75, 0.05) !important; /* Delikatne czerwone tło w środku */
-    overflow: hidden !important; /* Zapobiega wystawaniu tła poza zaokrąglone rogi */
-}
-div[data-testid="stExpander"] summary {
-    background-color: #FF4B4B !important; /* Główny czerwony pasek nagłówka */
-}
-div[data-testid="stExpander"] summary p {
-    font-weight: 900 !important;
-    font-size: 18px !important;
-    color: #ffffff !important; /* Wymuszony biały tekst na czerwonym tle */
-}
-div[data-testid="stExpander"] summary svg {
-    color: #ffffff !important; /* Wymuszona biała strzałka */
+/* --- WYMUSZENIE PRZYCISKU "ZROBIONE" OBOK EXPANDERA NA TELEFONIE --- */
+@media (max-width: 768px) {
+    div[data-testid="stHorizontalBlock"]:has(div[data-testid="stExpander"]) {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        align-items: center !important;
+    }
+    div[data-testid="stHorizontalBlock"]:has(div[data-testid="stExpander"]) > div[data-testid="column"] {
+        min-width: 0 !important;
+        width: auto !important;
+    }
+    div[data-testid="stHorizontalBlock"]:has(div[data-testid="stExpander"]) > div[data-testid="column"]:nth-child(1) {
+        flex: 1 1 75% !important;
+        width: 75% !important;
+    }
+    div[data-testid="stHorizontalBlock"]:has(div[data-testid="stExpander"]) > div[data-testid="column"]:nth-child(2) {
+        flex: 1 1 25% !important;
+        width: 25% !important;
+        display: flex;
+        justify-content: flex-end; 
+    }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -278,6 +282,39 @@ def main():
 
             wybrane_dane = categories_df[categories_df['name'] == wybrany].iloc[0]
             ikona, kolor = wybrane_dane['icon'], wybrane_dane['color']
+
+            # --- DYNAMICZNY CSS DLA ROZWIJANYCH RAMEK (EXPANDER) ---
+            # Przeliczanie wybranego HEX na RGBA (półprzezroczyste tło wnętrza ramki)
+            hex_c = kolor.lstrip('#')
+            if len(hex_c) == 6:
+                r, g, b = tuple(int(hex_c[i:i+2], 16) for i in (0, 2, 4))
+                bg_rgba = f"rgba({r}, {g}, {b}, 0.08)" # Lekko przezroczyste
+            else:
+                bg_rgba = "rgba(255, 255, 255, 0.05)"
+
+            # Wstrzyknięcie stylów dopasowanych do wybranego planu
+            st.markdown(f"""
+            <style>
+            div[data-testid="stExpander"] {{
+                border: 2px solid {kolor} !important; 
+                border-radius: 10px !important;
+                background-color: {bg_rgba} !important; 
+                overflow: hidden !important; 
+            }}
+            div[data-testid="stExpander"] summary {{
+                background-color: {kolor} !important; 
+            }}
+            div[data-testid="stExpander"] summary p {{
+                font-weight: 900 !important;
+                font-size: 18px !important;
+                color: #ffffff !important; 
+                text-shadow: 1px 1px 3px rgba(0,0,0,0.5); /* Cień chroniący przed jasnymi kolorami */
+            }}
+            div[data-testid="stExpander"] summary svg {{
+                color: #ffffff !important; 
+            }}
+            </style>
+            """, unsafe_allow_html=True)
 
             st.markdown(f"<h3 style='color: {kolor}; margin-bottom: 0px;'>{ikona} Trening: {wybrany}</h3>",
                         unsafe_allow_html=True)
