@@ -84,11 +84,11 @@ def init_db():
                     punkty_pompy REAL, username TEXT, masa_wlasna INTEGER DEFAULT 0, na_czas INTEGER DEFAULT 0, czas INTEGER DEFAULT 0)''')
     c.execute('''CREATE TABLE IF NOT EXISTS pomiary (id SERIAL PRIMARY KEY, data TEXT, waga REAL, username TEXT)''')
 
-    # Sprawdzenie i aktualizacja bazy o kolumnę do zarządzania kolejnością (uruchamia się tylko jeśli kolumny brakuje)
+    # Sprawdzenie i aktualizacja bazy o kolumnę do zarządzania kolejnością
     c.execute("SELECT column_name FROM information_schema.columns WHERE table_name='plan' AND column_name='kolejnosc'")
     if not c.fetchone():
         c.execute("ALTER TABLE plan ADD COLUMN kolejnosc INTEGER DEFAULT 0")
-        c.execute("UPDATE plan SET kolejnosc = id") # Ustawia domyślną kolejność dla starych ćwiczeń
+        c.execute("UPDATE plan SET kolejnosc = id") 
         conn.commit()
 
     c.execute("SELECT COUNT(*) FROM categories WHERE username = 'Główny'")
@@ -181,26 +181,15 @@ def render_zarzadzanie_planem(kategoria_nazwa, ikona, kolor):
     # Pobieranie z uwzględnieniem nowej kolejności
     df_plan = pd.read_sql_query("SELECT * FROM plan WHERE kategoria=%s AND username=%s ORDER BY kolejnosc ASC, id ASC", conn, params=(kategoria_nazwa, usr))
 
-    # NORMALIACJA KOLEJNOŚCI - Automatycznie układa numerki 0, 1, 2, 3... żeby strzałki działały idealnie
-    needs_commit = False
-    c = conn.cursor()
-    for i, row in df_plan.iterrows():
-        if row['kolejnosc'] != i:
-            c.execute("UPDATE plan SET kolejnosc=%s WHERE id=%s", (i, row['id']))
-            needs_commit = True
-    if needs_commit:
-        conn.commit()
-        df_plan['kolejnosc'] = range(len(df_plan))
-
     edit_key = f"edit_id_{kategoria_nazwa}_{usr}"
     if edit_key not in st.session_state: st.session_state[edit_key] = None
 
     st.markdown(f"<h3 style='color: {kolor};'>{ikona} Plan: {kategoria_nazwa}</h3>", unsafe_allow_html=True)
 
     if not df_plan.empty:
-        total_items = len(df_plan)
         for idx, row in df_plan.iterrows():
-            c_a, c_up, c_dn, c_b, c_c = st.columns([3.8, 0.6, 0.6, 0.8, 0.8], vertical_alignment="center")
+            # Kolumny: Info (szeroka), Kolejnosc (wąska), Edytuj, Usuń
+            c_a, c_ord, c_b, c_c = st.columns([4.2, 1.0, 0.8, 0.8], vertical_alignment="center")
             
             # Wypisywanie informacji
             if row['na_czas'] == 1:
@@ -211,25 +200,14 @@ def render_zarzadzanie_planem(kategoria_nazwa, ikona, kolor):
                     "Masa wł." if row['masa_wlasna'] else f"{row['obciazenie']}kg")
                 c_a.write(f"**{row['cwiczenie']}** | {row['serie']}x{row['powtorzenia']} | {obc_str}")
 
-            # STRZAŁKA W GÓRĘ
-            with c_up:
-                if idx > 0:
-                    if st.button("⬆️", key=f"up_{row['id']}", use_container_width=True):
-                        prev_id = df_plan.iloc[idx-1]['id']
-                        c.execute("UPDATE plan SET kolejnosc=%s WHERE id=%s", (idx, prev_id))
-                        c.execute("UPDATE plan SET kolejnosc=%s WHERE id=%s", (idx-1, row['id']))
-                        conn.commit()
-                        st.rerun()
-
-            # STRZAŁKA W DÓŁ
-            with c_dn:
-                if idx < total_items - 1:
-                    if st.button("⬇️", key=f"dn_{row['id']}", use_container_width=True):
-                        next_id = df_plan.iloc[idx+1]['id']
-                        c.execute("UPDATE plan SET kolejnosc=%s WHERE id=%s", (idx, next_id))
-                        c.execute("UPDATE plan SET kolejnosc=%s WHERE id=%s", (idx+1, row['id']))
-                        conn.commit()
-                        st.rerun()
+            # OKIENKO DO WPISYWANIA KOLEJNOŚCI
+            with c_ord:
+                nowa_kol = st.number_input("Nr", value=int(row['kolejnosc']), step=1, key=f"ord_{row['id']}", label_visibility="collapsed")
+                if nowa_kol != int(row['kolejnosc']):
+                    c = conn.cursor()
+                    c.execute("UPDATE plan SET kolejnosc=%s WHERE id=%s", (nowa_kol, row['id']))
+                    conn.commit()
+                    st.rerun()
 
             with c_b:
                 if st.button("Edytuj", key=f"ed_{row['id']}"):
@@ -237,6 +215,7 @@ def render_zarzadzanie_planem(kategoria_nazwa, ikona, kolor):
                     st.rerun()
             with c_c:
                 if st.button("Usuń", key=f"del_{row['id']}"):
+                    c = conn.cursor()
                     c.execute("DELETE FROM plan WHERE id=%s", (row['id'],))
                     conn.commit()
                     st.rerun()
@@ -437,7 +416,7 @@ def main():
                                 (str(dt), wybrany, z['c'], z['s'], z['p'], z['w'], z['pr'], pts, z['mw'], z['nc'],
                                  z['cz'], usr))
                             
-                            # Nadpisanie planu nowymi danymi na stałe (żeby w przyszłości domyślnie ładował się nowy ciężar)
+                            # Nadpisanie planu nowymi danymi na stałe
                             c.execute(
                                 "UPDATE plan SET serie=%s, powtorzenia=%s, obciazenie=%s, pompa_rate=%s, masa_wlasna=%s, na_czas=%s, czas=%s WHERE cwiczenie=%s AND kategoria=%s AND username=%s",
                                 (z['s'], z['p'], z['w'], z['pr'], z['mw'], z['nc'], z['cz'], z['c'], wybrany, usr))
