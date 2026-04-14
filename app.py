@@ -84,6 +84,13 @@ def init_db():
                     punkty_pompy REAL, username TEXT, masa_wlasna INTEGER DEFAULT 0, na_czas INTEGER DEFAULT 0, czas INTEGER DEFAULT 0)''')
     c.execute('''CREATE TABLE IF NOT EXISTS pomiary (id SERIAL PRIMARY KEY, data TEXT, waga REAL, username TEXT)''')
 
+    # Sprawdzenie i aktualizacja bazy o kolumnę do zarządzania kolejnością (uruchamia się tylko jeśli kolumny brakuje)
+    c.execute("SELECT column_name FROM information_schema.columns WHERE table_name='plan' AND column_name='kolejnosc'")
+    if not c.fetchone():
+        c.execute("ALTER TABLE plan ADD COLUMN kolejnosc INTEGER DEFAULT 0")
+        c.execute("UPDATE plan SET kolejnosc = id") # Ustawia domyślną kolejność dla starych ćwiczeń
+        conn.commit()
+
     c.execute("SELECT COUNT(*) FROM categories WHERE username = 'Główny'")
     if c.fetchone()[0] == 0:
         default_cats = [("Push", "✋", "#FF4B4B"), ("Pull", "✊", "#00CCFF"), ("Nogi", "🦵", "#00FF00")]
@@ -170,8 +177,20 @@ def auth_screen():
 def render_zarzadzanie_planem(kategoria_nazwa, ikona, kolor):
     usr = st.session_state.username
     conn = get_db_connection()
-    df_plan = pd.read_sql_query("SELECT * FROM plan WHERE kategoria=%s AND username=%s", conn,
-                                params=(kategoria_nazwa, usr))
+    
+    # Pobieranie z uwzględnieniem nowej kolejności
+    df_plan = pd.read_sql_query("SELECT * FROM plan WHERE kategoria=%s AND username=%s ORDER BY kolejnosc ASC, id ASC", conn, params=(kategoria_nazwa, usr))
+
+    # NORMALIACJA KOLEJNOŚCI - Automatycznie układa numerki 0, 1, 2, 3... żeby strzałki działały idealnie
+    needs_commit = False
+    c = conn.cursor()
+    for i, row in df_plan.iterrows():
+        if row['kolejnosc'] != i:
+            c.execute("UPDATE plan SET kolejnosc=%s WHERE id=%s", (i, row['id']))
+            needs_commit = True
+    if needs_commit:
+        conn.commit()
+        df_plan['kolejnosc'] = range(len(df_plan))
 
     edit_key = f"edit_id_{kategoria_nazwa}_{usr}"
     if edit_key not in st.session_state: st.session_state[edit_key] = None
@@ -179,8 +198,11 @@ def render_zarzadzanie_planem(kategoria_nazwa, ikona, kolor):
     st.markdown(f"<h3 style='color: {kolor};'>{ikona} Plan: {kategoria_nazwa}</h3>", unsafe_allow_html=True)
 
     if not df_plan.empty:
+        total_items = len(df_plan)
         for idx, row in df_plan.iterrows():
-            c_a, c_b, c_c = st.columns([5, 0.8, 0.8], vertical_alignment="center")
+            c_a, c_up, c_dn, c_b, c_c = st.columns([3.8, 0.6, 0.6, 0.8, 0.8], vertical_alignment="center")
+            
+            # Wypisywanie informacji
             if row['na_czas'] == 1:
                 obc_str = f"{row['czas']} sekund"
                 c_a.write(f"**{row['cwiczenie']}** | {row['serie']}x | ⏱️ {obc_str}")
@@ -189,13 +211,32 @@ def render_zarzadzanie_planem(kategoria_nazwa, ikona, kolor):
                     "Masa wł." if row['masa_wlasna'] else f"{row['obciazenie']}kg")
                 c_a.write(f"**{row['cwiczenie']}** | {row['serie']}x{row['powtorzenia']} | {obc_str}")
 
+            # STRZAŁKA W GÓRĘ
+            with c_up:
+                if idx > 0:
+                    if st.button("⬆️", key=f"up_{row['id']}", use_container_width=True):
+                        prev_id = df_plan.iloc[idx-1]['id']
+                        c.execute("UPDATE plan SET kolejnosc=%s WHERE id=%s", (idx, prev_id))
+                        c.execute("UPDATE plan SET kolejnosc=%s WHERE id=%s", (idx-1, row['id']))
+                        conn.commit()
+                        st.rerun()
+
+            # STRZAŁKA W DÓŁ
+            with c_dn:
+                if idx < total_items - 1:
+                    if st.button("⬇️", key=f"dn_{row['id']}", use_container_width=True):
+                        next_id = df_plan.iloc[idx+1]['id']
+                        c.execute("UPDATE plan SET kolejnosc=%s WHERE id=%s", (idx, next_id))
+                        c.execute("UPDATE plan SET kolejnosc=%s WHERE id=%s", (idx+1, row['id']))
+                        conn.commit()
+                        st.rerun()
+
             with c_b:
                 if st.button("Edytuj", key=f"ed_{row['id']}"):
                     st.session_state[edit_key] = row['id']
                     st.rerun()
             with c_c:
                 if st.button("Usuń", key=f"del_{row['id']}"):
-                    c = conn.cursor()
                     c.execute("DELETE FROM plan WHERE id=%s", (row['id'],))
                     conn.commit()
                     st.rerun()
@@ -244,9 +285,14 @@ def render_zarzadzanie_planem(kategoria_nazwa, ikona, kolor):
                         (nazwa, serie, final_p, final_o, pompa, final_mw, is_time, final_cz, edit_id))
                     st.session_state[edit_key] = None
                 else:
+                    # Obliczanie maksymalnej kolejności, żeby nowe ćwiczenie dodało się na sam dół
+                    c.execute("SELECT MAX(kolejnosc) FROM plan WHERE kategoria=%s AND username=%s", (kategoria_nazwa, usr))
+                    res_max = c.fetchone()
+                    next_k = (res_max[0] + 1) if res_max[0] is not None else 0
+
                     c.execute(
-                        "INSERT INTO plan (kategoria, cwiczenie, serie, powtorzenia, obciazenie, pompa_rate, masa_wlasna, na_czas, czas, username) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                        (kategoria_nazwa, nazwa, serie, final_p, final_o, pompa, final_mw, is_time, final_cz, usr))
+                        "INSERT INTO plan (kategoria, cwiczenie, serie, powtorzenia, obciazenie, pompa_rate, masa_wlasna, na_czas, czas, username, kolejnosc) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                        (kategoria_nazwa, nazwa, serie, final_p, final_o, pompa, final_mw, is_time, final_cz, usr, next_k))
                 conn.commit()
                 st.rerun()
     if edit_id:
@@ -284,15 +330,13 @@ def main():
             ikona, kolor = wybrane_dane['icon'], wybrane_dane['color']
 
             # --- DYNAMICZNY CSS DLA ROZWIJANYCH RAMEK (EXPANDER) ---
-            # Przeliczanie wybranego HEX na RGBA (półprzezroczyste tło wnętrza ramki)
             hex_c = kolor.lstrip('#')
             if len(hex_c) == 6:
                 r, g, b = tuple(int(hex_c[i:i+2], 16) for i in (0, 2, 4))
-                bg_rgba = f"rgba({r}, {g}, {b}, 0.08)" # Lekko przezroczyste
+                bg_rgba = f"rgba({r}, {g}, {b}, 0.08)"
             else:
                 bg_rgba = "rgba(255, 255, 255, 0.05)"
 
-            # Wstrzyknięcie stylów dopasowanych do wybranego planu
             st.markdown(f"""
             <style>
             div[data-testid="stExpander"] {{
@@ -308,7 +352,7 @@ def main():
                 font-weight: 900 !important;
                 font-size: 18px !important;
                 color: #ffffff !important; 
-                text-shadow: 1px 1px 3px rgba(0,0,0,0.5); /* Cień chroniący przed jasnymi kolorami */
+                text-shadow: 1px 1px 3px rgba(0,0,0,0.5); 
             }}
             div[data-testid="stExpander"] summary svg {{
                 color: #ffffff !important; 
@@ -320,7 +364,8 @@ def main():
                         unsafe_allow_html=True)
             st.markdown("---")
 
-            plan_df = pd.read_sql_query("SELECT * FROM plan WHERE kategoria=%s AND username=%s", conn,
+            # Trening wczytywany z bazy z zastosowaniem przypisanej KOLEJNOŚCI
+            plan_df = pd.read_sql_query("SELECT * FROM plan WHERE kategoria=%s AND username=%s ORDER BY kolejnosc ASC, id ASC", conn,
                                         params=(wybrany, usr))
             if plan_df.empty:
                 st.info("Ten plan jest pusty.")
@@ -334,13 +379,19 @@ def main():
                     st.warning(
                         "⚠️ Masz w planie ćwiczenia z masą własną, ale nie uzupełniłeś Pomiary (Waga). System policzy wagę ciała jako 0 kg.")
 
-                # Przechodzimy przez każde ćwiczenie
                 for i, r in plan_df.iterrows():
-                    # --- ARCHITEKTURA MOBILNA ---
                     col_expander, col_done = st.columns([3, 1], vertical_alignment="center")
 
                     with col_expander:
-                        with st.expander(f"🏋️ {r['cwiczenie']}"):
+                        # --- SZCZEGÓŁOWY NAGŁÓWEK ---
+                        if r['na_czas'] == 1:
+                            header_text = f"🏋️ {r['cwiczenie']} | {int(r['serie'])}x | ⏱️ {int(r['czas'])} sekund"
+                        else:
+                            waga_str = f"Masa wł. + {r['obciazenie']:g}kg" if r['masa_wlasna'] and r['obciazenie'] > 0 else (
+                                "Masa wł." if r['masa_wlasna'] else f"{r['obciazenie']:g}kg")
+                            header_text = f"🏋️ {r['cwiczenie']} | {int(r['serie'])}x{int(r['powtorzenia'])} | {waga_str}"
+
+                        with st.expander(header_text):
                             if r['na_czas'] == 1:
                                 c_in1, c_in2 = st.columns(2)
                                 s = c_in1.number_input("Serie", value=int(r['serie']), key=f"s_{r['id']}_{rc}")
@@ -380,13 +431,17 @@ def main():
                                 w_c = total_weight if total_weight > 0 else 1
                                 pts = z['s'] * z['p'] * w_c * z['pr']
 
+                            # Zapis historii
                             c.execute(
                                 "INSERT INTO historia (data, kategoria, cwiczenie, serie, powtorzenia, obciazenie, pompa_rate, punkty_pompy, masa_wlasna, na_czas, czas, username) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                                 (str(dt), wybrany, z['c'], z['s'], z['p'], z['w'], z['pr'], pts, z['mw'], z['nc'],
                                  z['cz'], usr))
+                            
+                            # Nadpisanie planu nowymi danymi na stałe (żeby w przyszłości domyślnie ładował się nowy ciężar)
                             c.execute(
                                 "UPDATE plan SET serie=%s, powtorzenia=%s, obciazenie=%s, pompa_rate=%s, masa_wlasna=%s, na_czas=%s, czas=%s WHERE cwiczenie=%s AND kategoria=%s AND username=%s",
                                 (z['s'], z['p'], z['w'], z['pr'], z['mw'], z['nc'], z['cz'], z['c'], wybrany, usr))
+                        
                         conn.commit()
                         st.session_state.reset_counter += 1
                         st.rerun()
