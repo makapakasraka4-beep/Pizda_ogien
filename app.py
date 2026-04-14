@@ -38,7 +38,7 @@ div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"]:nth-ch
 
 /* --- OPTYMALIZACJA STRICTE POD TELEFON (MOBILE FIRST) --- */
 input[type="number"], input[type="text"] {
-    font-size: 16px !important; /* Blokuje automatyczne zoomowanie ekranu na iOS */
+    font-size: 16px !important; 
 }
 button {
     min-height: 44px !important; 
@@ -76,13 +76,11 @@ div[data-testid="stExpander"] summary svg {
         width: 100% !important;
         gap: 8px !important;
     }
-    /* Lewa strona z ćwiczeniem zajmuje tyle miejsca, ile to możliwe */
     div[data-testid="stHorizontalBlock"]:has(div[data-testid="stExpander"]) > div[data-testid="column"]:nth-child(1) {
         flex: 1 1 auto !important;
         width: auto !important;
         min-width: 0 !important; 
     }
-    /* Prawa strona z przełącznikiem zajmuje tylko niezbędne minimum */
     div[data-testid="stHorizontalBlock"]:has(div[data-testid="stExpander"]) > div[data-testid="column"]:nth-child(2) {
         flex: 0 0 auto !important;
         width: auto !important;
@@ -290,7 +288,9 @@ def render_zarzadzanie_planem(cat_id, kategoria_nazwa, ikona, kolor):
         powt = c3.number_input("Powt. / Czas(s)", min_value=1, value=int(d_cz) if d_nc else int(d_p),
                                help="Tu wpisz powtórzenia lub sekundy")
         mw_bool = c5.toggle("Masa wł.", value=bool(d_mw))
-        obc = c4.number_input("Dodatkowe kg / Zignoruj", min_value=0.0, format="%g", value=float(d_o))
+        
+        # ZMIANA: step=0.5 dla obciążenia
+        obc = c4.number_input("Dodatkowe kg / Zignoruj", min_value=0.0, format="%g", value=float(d_o), step=0.5)
 
         pompa = st.slider("POMPA", 1, 5, int(d_pr))
 
@@ -331,7 +331,6 @@ def main():
     categories_df = pd.read_sql_query("SELECT id, name, icon, color FROM categories WHERE username = %s ORDER BY id ASC", conn,
                                       params=(usr,))
 
-    # Reset countery dla każdej kategorii by chronić stan przy zapisie
     for _, row in categories_df.iterrows():
         rc_key = f"rc_{row['name']}"
         if rc_key not in st.session_state:
@@ -364,7 +363,6 @@ def main():
                     
                     rc = st.session_state[f"rc_{wybrany}"]
 
-                    # Nadanie kolorów nagłówkowi i delikatnej poświaty dla ramek ćwiczeń z danej kategorii
                     hex_c = kolor.lstrip('#')
                     if len(hex_c) == 6:
                         r, g, b = tuple(int(hex_c[i:i+2], 16) for i in (0, 2, 4))
@@ -374,7 +372,6 @@ def main():
 
                     st.markdown(f"""
                     <style>
-                    /* Pokolorowanie konkretnej zakładki dla czytelności */
                     div[data-testid="stTabs"] button[data-baseweb="tab"]:nth-child({i+1})[aria-selected="true"] {{
                         border-bottom-color: {kolor} !important;
                     }}
@@ -396,7 +393,6 @@ def main():
                             st.warning("⚠️ Masz ćwiczenia z masą własną, ale nie uzupełniłeś zakładki Pomiary. System policzy wagę ciała jako 0 kg.")
 
                         for idx, r_row in plan_df.iterrows():
-                            # Wąski kontener na flexboxie z CSS-a wyżej
                             col_expander, col_done = st.columns([3, 1], vertical_alignment="center")
 
                             with col_expander:
@@ -421,7 +417,9 @@ def main():
                                         
                                         c_in3, c_in4 = st.columns(2, vertical_alignment="bottom")
                                         mw = c_in3.toggle("Masa wł.", value=bool(r_row['masa_wlasna']), key=f"mw_{r_row['id']}_{rc}")
-                                        w = c_in4.number_input("+ Kg" if mw else "Kg", value=float(r_row['obciazenie']), key=f"w_{r_row['id']}_{rc}")
+                                        
+                                        # ZMIANA: step=0.5 dla obciążenia
+                                        w = c_in4.number_input("+ Kg" if mw else "Kg", value=float(r_row['obciazenie']), step=0.5, key=f"w_{r_row['id']}_{rc}")
                                         
                                         pompa = st.number_input("Pompa (1-5)", 1, 5, int(r_row['pompa_rate']), key=f"pr_{r_row['id']}_{rc}")
                                         cz = 0
@@ -462,7 +460,16 @@ def main():
         hist = pd.read_sql_query("SELECT * FROM historia WHERE username=%s ORDER BY data DESC", conn, params=(usr,))
         
         if not hist.empty:
-            # --- SEKCJA: PROGRES POSZCZEGÓLNYCH ĆWICZEŃ ---
+            # --- 1. SEKCJA: SUMA POMPY W DNIACH ---
+            wykres_df = hist.groupby(['data', 'kategoria'])['punkty_pompy'].sum().reset_index()
+            color_map = dict(zip(categories_df['name'], categories_df['color']))
+            fig = px.bar(wykres_df, x='data', y='punkty_pompy', color='kategoria', color_discrete_map=color_map,
+                         title="🔥 Suma punktów pompy w dniach")
+            st.plotly_chart(fig, use_container_width=True)
+            
+            st.markdown("---")
+
+            # --- 2. SEKCJA: PROGRES POSZCZEGÓLNYCH ĆWICZEŃ ---
             st.markdown("### 📈 Progres w ćwiczeniach")
             
             hist_cats = hist['kategoria'].unique().tolist()
@@ -480,14 +487,12 @@ def main():
                     is_time_based = df_chart['na_czas'].iloc[0] == 1
                     
                     if is_time_based:
-                        # Maksymalny czas danego dnia
                         df_plot = df_chart.groupby('data')['czas'].max().reset_index()
                         df_plot = df_plot.sort_values('data')
                         fig_prog = px.line(df_plot, x='data', y='czas', markers=True, title=f"Najlepszy czas: {wybrane_cw_stat} (sekundy)")
                         fig_prog.update_traces(line_color="#00CCFF")
                         fig_prog.update_layout(yaxis_title="Czas [s]", xaxis_title="")
                     else:
-                        # Maksymalne obciążenie danego dnia
                         df_plot = df_chart.groupby('data')['obciazenie'].max().reset_index()
                         df_plot = df_plot.sort_values('data')
                         fig_prog = px.line(df_plot, x='data', y='obciazenie', markers=True, title=f"Największe obciążenie: {wybrane_cw_stat} (kg)")
@@ -497,15 +502,8 @@ def main():
                     st.plotly_chart(fig_prog, use_container_width=True)
 
             st.markdown("---")
-            # --- SEKCJA: SUMA POMPY ---
-            wykres_df = hist.groupby(['data', 'kategoria'])['punkty_pompy'].sum().reset_index()
-            color_map = dict(zip(categories_df['name'], categories_df['color']))
-            fig = px.bar(wykres_df, x='data', y='punkty_pompy', color='kategoria', color_discrete_map=color_map,
-                         title="🔥 Suma punktów pompy w dniach")
-            st.plotly_chart(fig, use_container_width=True)
-            
-            st.markdown("---")
-            # --- SEKCJA: HISTORIA TRENINGÓW ---
+
+            # --- 3. SEKCJA: HISTORIA TRENINGÓW ---
             st.markdown("### 📅 Historia Twoich Treningów")
             unique_dates = hist['data'].unique()
             for d_str in unique_dates:
