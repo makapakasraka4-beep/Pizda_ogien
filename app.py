@@ -200,14 +200,9 @@ def render_zarzadzanie_planem(kategoria_nazwa, ikona, kolor):
                     "Masa wł." if row['masa_wlasna'] else f"{row['obciazenie']}kg")
                 c_a.write(f"**{row['cwiczenie']}** | {row['serie']}x{row['powtorzenia']} | {obc_str}")
 
-            # OKIENKO DO WPISYWANIA KOLEJNOŚCI
+            # OKIENKO DO WPISYWANIA KOLEJNOŚCI - Odłączony auto-zapis
             with c_ord:
-                nowa_kol = st.number_input("Nr", value=int(row['kolejnosc']), step=1, key=f"ord_{row['id']}", label_visibility="collapsed")
-                if nowa_kol != int(row['kolejnosc']):
-                    c = conn.cursor()
-                    c.execute("UPDATE plan SET kolejnosc=%s WHERE id=%s", (nowa_kol, row['id']))
-                    conn.commit()
-                    st.rerun()
+                st.number_input("Nr", value=int(row['kolejnosc']), step=1, key=f"ord_{row['id']}", label_visibility="collapsed")
 
             with c_b:
                 if st.button("Edytuj", key=f"ed_{row['id']}"):
@@ -219,6 +214,22 @@ def render_zarzadzanie_planem(kategoria_nazwa, ikona, kolor):
                     c.execute("DELETE FROM plan WHERE id=%s", (row['id'],))
                     conn.commit()
                     st.rerun()
+
+        # NOWY PRZYCISK ZBIORCZEGO ZAPISU KOLEJNOŚCI
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("💾 ZAPISZ KOLEJNOŚĆ", type="secondary", key=f"save_ord_{kategoria_nazwa}", use_container_width=True):
+            c = conn.cursor()
+            czy_zmieniono = False
+            for idx, row in df_plan.iterrows():
+                nowa_kol = st.session_state[f"ord_{row['id']}"]
+                if nowa_kol != int(row['kolejnosc']):
+                    c.execute("UPDATE plan SET kolejnosc=%s WHERE id=%s", (nowa_kol, row['id']))
+                    czy_zmieniono = True
+            
+            if czy_zmieniono:
+                conn.commit()
+                st.rerun()
+
     else:
         st.info("Dodaj pierwsze ćwiczenie do tego planu.")
 
