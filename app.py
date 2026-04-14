@@ -63,7 +63,7 @@ except:
 
 
 # --- TURBO DOŁADOWANIE (CACHE) ---
-@st.cache_resource
+@st.cache_resource(validate=lambda conn: conn.closed == 0)
 def get_db_connection():
     return psycopg2.connect(DB_URI)
 
