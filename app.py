@@ -10,6 +10,7 @@ st.set_page_config(page_title="Mój Trening", page_icon="💪", layout="wide")
 # ----- MAGIA CSS -----
 st.markdown("""
 <style>
+/* Wygląd wierszy w starszych częściach aplikacji */
 div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"]:nth-child(odd) {
     background-color: rgba(255, 255, 255, 0.02);
     border-radius: 12px;
@@ -27,6 +28,18 @@ div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"]:nth-ch
     text-shadow: 0px 0px 8px rgba(0,255,0,0.4);
     font-weight: 900;
 }
+
+/* --- NOWY STYL DLA ROZWIJANYCH RAMEK (EXPANDER) --- */
+div[data-testid="stExpander"] {
+    background-color: rgba(255, 255, 255, 0.05);
+    border-radius: 10px;
+    border-left: 5px solid #FF4B4B; /* Domyślny kolor boczny */
+}
+div[data-testid="stExpander"] summary p {
+    font-weight: 800 !important;
+    font-size: 18px !important;
+    color: #ffffff;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -39,126 +52,26 @@ except:
 
 
 # --- TURBO DOŁADOWANIE (CACHE) ---
-
 @st.cache_resource
 def get_db_connection():
-    # Utrzymuje stałe połączenie, zamiast tworzyć je od nowa przy każdym kliknięciu
     return psycopg2.connect(DB_URI)
 
 
-@st.cache_data(ttl=600)  # Odświeżaj strukturę co 10 minut
+@st.cache_data(ttl=600)
 def init_db():
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS users
-                 (
-                     username
-                     TEXT
-                     PRIMARY
-                     KEY,
-                     password
-                     TEXT
-                 )''')
-    c.execute('''CREATE TABLE IF NOT EXISTS categories
-                 (
-                     id
-                     SERIAL
-                     PRIMARY
-                     KEY,
-                     name
-                     TEXT,
-                     username
-                     TEXT,
-                     icon
-                     TEXT,
-                     color
-                     TEXT
-                 )''')
-    c.execute('''CREATE TABLE IF NOT EXISTS plan
-                 (
-                     id
-                     SERIAL
-                     PRIMARY
-                     KEY,
-                     kategoria
-                     TEXT,
-                     cwiczenie
-                     TEXT,
-                     opis
-                     TEXT,
-                     serie
-                     INTEGER,
-                     powtorzenia
-                     INTEGER,
-                     obciazenie
-                     REAL,
-                     pompa_rate
-                     INTEGER,
-                     username
-                     TEXT,
-                     masa_wlasna
-                     INTEGER
-                     DEFAULT
-                     0,
-                     na_czas
-                     INTEGER
-                     DEFAULT
-                     0,
-                     czas
-                     INTEGER
-                     DEFAULT
-                     0
-                 )''')
-    c.execute('''CREATE TABLE IF NOT EXISTS historia
-                 (
-                     id
-                     SERIAL
-                     PRIMARY
-                     KEY,
-                     data
-                     TEXT,
-                     kategoria
-                     TEXT,
-                     cwiczenie
-                     TEXT,
-                     serie
-                     INTEGER,
-                     powtorzenia
-                     INTEGER,
-                     obciazenie
-                     REAL,
-                     pompa_rate
-                     INTEGER,
-                     punkty_pompy
-                     REAL,
-                     username
-                     TEXT,
-                     masa_wlasna
-                     INTEGER
-                     DEFAULT
-                     0,
-                     na_czas
-                     INTEGER
-                     DEFAULT
-                     0,
-                     czas
-                     INTEGER
-                     DEFAULT
-                     0
-                 )''')
-    c.execute('''CREATE TABLE IF NOT EXISTS pomiary
-                 (
-                     id
-                     SERIAL
-                     PRIMARY
-                     KEY,
-                     data
-                     TEXT,
-                     waga
-                     REAL,
-                     username
-                     TEXT
-                 )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS categories (id SERIAL PRIMARY KEY, name TEXT, username TEXT, icon TEXT, color TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS plan (
+                    id SERIAL PRIMARY KEY, kategoria TEXT, cwiczenie TEXT, opis TEXT,
+                    serie INTEGER, powtorzenia INTEGER, obciazenie REAL, pompa_rate INTEGER,
+                    username TEXT, masa_wlasna INTEGER DEFAULT 0, na_czas INTEGER DEFAULT 0, czas INTEGER DEFAULT 0)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS historia (
+                    id SERIAL PRIMARY KEY, data TEXT, kategoria TEXT, cwiczenie TEXT,
+                    serie INTEGER, powtorzenia INTEGER, obciazenie REAL, pompa_rate INTEGER,
+                    punkty_pompy REAL, username TEXT, masa_wlasna INTEGER DEFAULT 0, na_czas INTEGER DEFAULT 0, czas INTEGER DEFAULT 0)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS pomiary (id SERIAL PRIMARY KEY, data TEXT, waga REAL, username TEXT)''')
 
     c.execute("SELECT COUNT(*) FROM categories WHERE username = 'Główny'")
     if c.fetchone()[0] == 0:
@@ -168,7 +81,6 @@ def init_db():
                       (nazwa, ikona, kolor))
 
     conn.commit()
-    # Nie zamykamy conn, bo st.cache_resource musi go trzymać żywego
 
 
 # --- LOGIKA APLIKACJI ---
@@ -176,10 +88,8 @@ def init_db():
 def make_hashes(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
 
-
 def check_hashes(password, hashed_text):
     return make_hashes(password) == hashed_text
-
 
 def get_latest_weight(usr):
     conn = get_db_connection()
@@ -215,7 +125,7 @@ def auth_screen():
             u = st.text_input("Login", key="log_u")
             p = st.text_input("Hasło", type="password", key="log_p")
             if st.button("Wejdź", type="primary", use_container_width=True):
-                conn = get_db_connection();
+                conn = get_db_connection()
                 c = conn.cursor()
                 c.execute("SELECT password FROM users WHERE username = %s", (u,))
                 data = c.fetchone()
@@ -230,7 +140,7 @@ def auth_screen():
             np = st.text_input("Nowe Hasło", type="password", key="reg_p")
             if st.button("Zarejestruj", use_container_width=True):
                 if nu and np:
-                    conn = get_db_connection();
+                    conn = get_db_connection()
                     c = conn.cursor()
                     c.execute("SELECT * FROM users WHERE username = %s", (nu,))
                     if c.fetchone():
@@ -241,7 +151,7 @@ def auth_screen():
                         for nazwa, ikona, kolor in default_cats:
                             c.execute("INSERT INTO categories (name, username, icon, color) VALUES (%s, %s, %s, %s)",
                                       (nazwa, nu, ikona, kolor))
-                        conn.commit();
+                        conn.commit()
                         st.success("Konto gotowe! Zaloguj się.")
     return False
 
@@ -270,13 +180,13 @@ def render_zarzadzanie_planem(kategoria_nazwa, ikona, kolor):
 
             with c_b:
                 if st.button("Edytuj", key=f"ed_{row['id']}"):
-                    st.session_state[edit_key] = row['id'];
+                    st.session_state[edit_key] = row['id']
                     st.rerun()
             with c_c:
                 if st.button("Usuń", key=f"del_{row['id']}"):
-                    c = conn.cursor();
-                    c.execute("DELETE FROM plan WHERE id=%s", (row['id'],));
-                    conn.commit();
+                    c = conn.cursor()
+                    c.execute("DELETE FROM plan WHERE id=%s", (row['id'],))
+                    conn.commit()
                     st.rerun()
     else:
         st.info("Dodaj pierwsze ćwiczenie do tego planu.")
@@ -326,7 +236,7 @@ def render_zarzadzanie_planem(kategoria_nazwa, ikona, kolor):
                     c.execute(
                         "INSERT INTO plan (kategoria, cwiczenie, serie, powtorzenia, obciazenie, pompa_rate, masa_wlasna, na_czas, czas, username) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                         (kategoria_nazwa, nazwa, serie, final_p, final_o, pompa, final_mw, is_time, final_cz, usr))
-                conn.commit();
+                conn.commit()
                 st.rerun()
     if edit_id:
         if st.button("Anuluj edycję"): st.session_state[edit_key] = None; st.rerun()
@@ -371,8 +281,8 @@ def main():
             if plan_df.empty:
                 st.info("Ten plan jest pusty.")
             else:
-                dt = st.date_input("Data", datetime.today());
-                zrobione = [];
+                dt = st.date_input("Data", datetime.today())
+                zrobione = []
                 rc = st.session_state.reset_counter
 
                 latest_weight = get_latest_weight(usr)
@@ -380,38 +290,44 @@ def main():
                     st.warning(
                         "⚠️ Masz w planie ćwiczenia z masą własną, ale nie uzupełniłeś Pomiary (Waga). System policzy wagę ciała jako 0 kg.")
 
-                bg_color = kolor + "33" if len(kolor) == 7 else kolor
-
+                # Przechodzimy przez każde ćwiczenie
                 for i, r in plan_df.iterrows():
-                    c1, c2, c3, c4, c5, c6, c7 = st.columns([2.2, 0.8, 1.0, 1.0, 0.9, 1.0, 1.2],
-                                                            vertical_alignment="center")
+                    # --- ARCHITEKTURA MOBILNA ---
+                    # Podział na dwie kolumny: z lewej pole do rozwijania (expander), z prawej przycisk "Zrobione"
+                    col_expander, col_done = st.columns([3, 1], vertical_alignment="center")
 
-                    styled_name = f"""
-                    <div style='background-color: {bg_color}; border-left: 5px solid {kolor}; padding: 10px 15px; border-radius: 6px; font-weight: 800; font-size: 16px;'>
-                        {r['cwiczenie']}
-                    </div>
-                    """
-                    c1.markdown(styled_name, unsafe_allow_html=True)
+                    with col_expander:
+                        # Zamiast długiego paska bocznego dynamicznie ustawiamy kolor ramki w stylach wyżej
+                        # Używamy natywnego st.expander, który tworzy estetyczny akordeon
+                        with st.expander(f"🏋️ {r['cwiczenie']}"):
+                            # Parametry dzielimy na 2 w rzędzie, żeby duże pola łatwo klikało się palcem
+                            if r['na_czas'] == 1:
+                                c_in1, c_in2 = st.columns(2)
+                                s = c_in1.number_input("Serie", value=int(r['serie']), key=f"s_{r['id']}_{rc}")
+                                cz = c_in2.number_input("Czas (s)", value=int(r['czas']), key=f"cz_{r['id']}_{rc}")
+                                pompa = st.number_input("Pompa (1-5)", 1, 5, int(r['pompa_rate']), key=f"pr_{r['id']}_{rc}")
+                                p, w, mw = 0, 0.0, 0
+                            else:
+                                c_in1, c_in2 = st.columns(2)
+                                s = c_in1.number_input("Serie", value=int(r['serie']), key=f"s_{r['id']}_{rc}")
+                                p = c_in2.number_input("Powt.", value=int(r['powtorzenia']), key=f"p_{r['id']}_{rc}")
+                                
+                                c_in3, c_in4 = st.columns(2, vertical_alignment="bottom")
+                                mw = c_in3.toggle("Masa wł.", value=bool(r['masa_wlasna']), key=f"mw_{r['id']}_{rc}")
+                                w = c_in4.number_input("+ Kg" if mw else "Kg", value=float(r['obciazenie']),
+                                                       key=f"w_{r['id']}_{rc}")
+                                
+                                pompa = st.number_input("Pompa (1-5)", 1, 5, int(r['pompa_rate']), key=f"pr_{r['id']}_{rc}")
+                                cz = 0
 
-                    if r['na_czas'] == 1:
-                        s = c2.number_input("Serie", value=int(r['serie']), key=f"s_{r['id']}_{rc}")
-                        cz = c3.number_input("Czas (s)", value=int(r['czas']), key=f"cz_{r['id']}_{rc}")
-                        c4.write("")
-                        c5.write("")
-                        pompa = c6.number_input("Pompa", 1, 5, int(r['pompa_rate']), key=f"pr_{r['id']}_{rc}")
-                        p, w, mw = 0, 0.0, 0
-                    else:
-                        s = c2.number_input("Serie", value=int(r['serie']), key=f"s_{r['id']}_{rc}")
-                        p = c3.number_input("Powt.", value=int(r['powtorzenia']), key=f"p_{r['id']}_{rc}")
-                        mw = c5.toggle("Masa wł.", value=bool(r['masa_wlasna']), key=f"mw_{r['id']}_{rc}")
-                        w = c4.number_input("+ Kg" if mw else "Kg", value=float(r['obciazenie']),
-                                            key=f"w_{r['id']}_{rc}")
-                        pompa = c6.number_input("Pompa", 1, 5, int(r['pompa_rate']), key=f"pr_{r['id']}_{rc}")
-                        cz = 0
-
-                    if c7.toggle("Zrobione", key=f"z_{r['id']}_{rc}"):
-                        zrobione.append({'c': r['cwiczenie'], 's': s, 'p': p, 'w': w, 'pr': pompa, 'mw': int(mw),
-                                         'nc': int(r['na_czas']), 'cz': cz})
+                    with col_done:
+                        # Przycisk "Zrobione" jest ciągle na wierzchu i łatwo w niego kliknąć
+                        if st.toggle("Zrobione", key=f"z_{r['id']}_{rc}"):
+                            zrobione.append({'c': r['cwiczenie'], 's': s, 'p': p, 'w': w, 'pr': pompa, 'mw': int(mw),
+                                             'nc': int(r['na_czas']), 'cz': cz})
+                    
+                    # Cienka linia przerywnikowa dla lepszej czytelności między kolejnymi ćwiczeniami
+                    st.markdown("<hr style='margin: 0.2em 0px; opacity: 0.2;'>", unsafe_allow_html=True)
 
                 st.markdown("<br>", unsafe_allow_html=True)
                 if st.button("🔥 ZAPISZ TRENING 🔥", type="primary", use_container_width=True):
@@ -433,8 +349,8 @@ def main():
                             c.execute(
                                 "UPDATE plan SET serie=%s, powtorzenia=%s, obciazenie=%s, pompa_rate=%s, masa_wlasna=%s, na_czas=%s, czas=%s WHERE cwiczenie=%s AND kategoria=%s AND username=%s",
                                 (z['s'], z['p'], z['w'], z['pr'], z['mw'], z['nc'], z['cz'], z['c'], wybrany, usr))
-                        conn.commit();
-                        st.session_state.reset_counter += 1;
+                        conn.commit()
+                        st.session_state.reset_counter += 1
                         st.rerun()
 
     # 2. STATYSTYKI
@@ -466,7 +382,7 @@ def main():
                     def format_obc(row):
                         if row['na_czas'] == 1: return f"⏱️ {row['czas']}s"
                         if row['masa_wlasna'] == 1: return f"Masa wł. + {row['obciazenie']}kg" if row[
-                                                                                                      'obciazenie'] > 0 else "Masa wł."
+                                                                                                    'obciazenie'] > 0 else "Masa wł."
                         return f"{row['obciazenie']}kg"
 
                     display_df['Obciążenie/Czas'] = display_df.apply(format_obc, axis=1)
@@ -474,9 +390,9 @@ def main():
                                  use_container_width=True)
                     for i, r in df_day.iterrows():
                         if st.button("Usuń", key=f"dh_{r['id']}"):
-                            c = conn.cursor();
-                            c.execute("DELETE FROM historia WHERE id=%s", (r['id'],));
-                            conn.commit();
+                            c = conn.cursor()
+                            c.execute("DELETE FROM historia WHERE id=%s", (r['id'],))
+                            conn.commit()
                             st.rerun()
         else:
             st.info("Brak historii treningów.")
@@ -484,13 +400,13 @@ def main():
     # 3. POMIARY
     with all_tabs[2]:
         with st.form("pomiar"):
-            c1, c2 = st.columns(2);
-            d_p = c1.date_input("Data");
+            c1, c2 = st.columns(2)
+            d_p = c1.date_input("Data")
             w_p = c2.number_input("Waga (kg)", 30.0, 200.0, 80.0, 0.1)
             if st.form_submit_button("DODAJ"):
-                c = conn.cursor();
-                c.execute("INSERT INTO pomiary (data, waga, username) VALUES (%s,%s,%s)", (str(d_p), w_p, usr));
-                conn.commit();
+                c = conn.cursor()
+                c.execute("INSERT INTO pomiary (data, waga, username) VALUES (%s,%s,%s)", (str(d_p), w_p, usr))
+                conn.commit()
                 st.rerun()
         p_df = pd.read_sql_query("SELECT * FROM pomiary WHERE username=%s ORDER BY data ASC", conn, params=(usr,))
         if not p_df.empty: st.plotly_chart(
@@ -533,7 +449,7 @@ def main():
                     else:
                         c.execute("INSERT INTO categories (name, username, icon, color) VALUES (%s, %s, %s, %s)",
                                   (new_cat_name, usr, new_cat_icon, new_cat_color))
-                    conn.commit();
+                    conn.commit()
                     st.rerun()
 
         for idx, row in categories_df.iterrows():
@@ -541,9 +457,9 @@ def main():
             c_1.write(f"{row['icon']} {row['name']}")
             if c_2.button("Edytuj", key=f"ecat_{row['name']}"): st.session_state[edit_cat_key] = row['name']; st.rerun()
             if c_3.button("Usuń", key=f"del_cat_{row['name']}"):
-                c = conn.cursor();
-                c.execute("DELETE FROM categories WHERE name=%s AND username=%s", (row['name'], usr));
-                conn.commit();
+                c = conn.cursor()
+                c.execute("DELETE FROM categories WHERE name=%s AND username=%s", (row['name'], usr))
+                conn.commit()
                 st.rerun()
 
 
