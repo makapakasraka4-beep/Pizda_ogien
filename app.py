@@ -29,7 +29,23 @@ div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"]:nth-ch
     font-weight: 900;
 }
 
-/* --- WYMUSZENIE PRZYCISKU "ZROBIONE" OBOK EXPANDERA NA TELEFONIE --- */
+/* --- OPTYMALIZACJA STRICTE POD TELEFON (MOBILE FIRST) --- */
+/* Zwiększenie klikalnych elementów (Touch Targets) i zapobieganie zoomowaniu na iOS */
+input[type="number"], input[type="text"] {
+    font-size: 16px !important; 
+}
+button {
+    min-height: 44px !important; 
+}
+div[data-testid="stExpander"] summary {
+    padding: 12px 10px !important; 
+}
+div[data-testid="stExpander"] summary p {
+    font-size: 16px !important; /* Lekko pomniejszone, by zmieścić więcej na telefonie */
+    line-height: 1.2 !important;
+}
+
+/* Wymuszenie przycisku "Zrobione" obok expandera */
 @media (max-width: 768px) {
     div[data-testid="stHorizontalBlock"]:has(div[data-testid="stExpander"]) {
         display: flex !important;
@@ -41,12 +57,12 @@ div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"]:nth-ch
         width: auto !important;
     }
     div[data-testid="stHorizontalBlock"]:has(div[data-testid="stExpander"]) > div[data-testid="column"]:nth-child(1) {
-        flex: 1 1 75% !important;
-        width: 75% !important;
+        flex: 1 1 72% !important;
+        width: 72% !important;
     }
     div[data-testid="stHorizontalBlock"]:has(div[data-testid="stExpander"]) > div[data-testid="column"]:nth-child(2) {
-        flex: 1 1 25% !important;
-        width: 25% !important;
+        flex: 1 1 28% !important;
+        width: 28% !important;
         display: flex;
         justify-content: flex-end; 
     }
@@ -84,7 +100,6 @@ def init_db():
                     punkty_pompy REAL, username TEXT, masa_wlasna INTEGER DEFAULT 0, na_czas INTEGER DEFAULT 0, czas INTEGER DEFAULT 0)''')
     c.execute('''CREATE TABLE IF NOT EXISTS pomiary (id SERIAL PRIMARY KEY, data TEXT, waga REAL, username TEXT)''')
 
-    # Sprawdzenie i aktualizacja bazy o kolumnę do zarządzania kolejnością
     c.execute("SELECT column_name FROM information_schema.columns WHERE table_name='plan' AND column_name='kolejnosc'")
     if not c.fetchone():
         c.execute("ALTER TABLE plan ADD COLUMN kolejnosc INTEGER DEFAULT 0")
@@ -178,7 +193,6 @@ def render_zarzadzanie_planem(kategoria_nazwa, ikona, kolor):
     usr = st.session_state.username
     conn = get_db_connection()
     
-    # Pobieranie z uwzględnieniem nowej kolejności
     df_plan = pd.read_sql_query("SELECT * FROM plan WHERE kategoria=%s AND username=%s ORDER BY kolejnosc ASC, id ASC", conn, params=(kategoria_nazwa, usr))
 
     edit_key = f"edit_id_{kategoria_nazwa}_{usr}"
@@ -188,10 +202,8 @@ def render_zarzadzanie_planem(kategoria_nazwa, ikona, kolor):
 
     if not df_plan.empty:
         for idx, row in df_plan.iterrows():
-            # Kolumny: Info (szeroka), Kolejnosc (wąska), Edytuj, Usuń
             c_a, c_ord, c_b, c_c = st.columns([4.2, 1.0, 0.8, 0.8], vertical_alignment="center")
             
-            # Wypisywanie informacji
             if row['na_czas'] == 1:
                 obc_str = f"{row['czas']} sekund"
                 c_a.write(f"**{row['cwiczenie']}** | {row['serie']}x | ⏱️ {obc_str}")
@@ -200,7 +212,6 @@ def render_zarzadzanie_planem(kategoria_nazwa, ikona, kolor):
                     "Masa wł." if row['masa_wlasna'] else f"{row['obciazenie']}kg")
                 c_a.write(f"**{row['cwiczenie']}** | {row['serie']}x{row['powtorzenia']} | {obc_str}")
 
-            # OKIENKO DO WPISYWANIA KOLEJNOŚCI - Odłączony auto-zapis
             with c_ord:
                 st.number_input("Nr", value=int(row['kolejnosc']), step=1, key=f"ord_{row['id']}", label_visibility="collapsed")
 
@@ -215,7 +226,6 @@ def render_zarzadzanie_planem(kategoria_nazwa, ikona, kolor):
                     conn.commit()
                     st.rerun()
 
-        # NOWY PRZYCISK ZBIORCZEGO ZAPISU KOLEJNOŚCI
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("💾 ZAPISZ KOLEJNOŚĆ", type="secondary", key=f"save_ord_{kategoria_nazwa}", use_container_width=True):
             c = conn.cursor()
@@ -275,7 +285,6 @@ def render_zarzadzanie_planem(kategoria_nazwa, ikona, kolor):
                         (nazwa, serie, final_p, final_o, pompa, final_mw, is_time, final_cz, edit_id))
                     st.session_state[edit_key] = None
                 else:
-                    # Obliczanie maksymalnej kolejności, żeby nowe ćwiczenie dodało się na sam dół
                     c.execute("SELECT MAX(kolejnosc) FROM plan WHERE kategoria=%s AND username=%s", (kategoria_nazwa, usr))
                     res_max = c.fetchone()
                     next_k = (res_max[0] + 1) if res_max[0] is not None else 0
@@ -340,7 +349,6 @@ def main():
             }}
             div[data-testid="stExpander"] summary p {{
                 font-weight: 900 !important;
-                font-size: 18px !important;
                 color: #ffffff !important; 
                 text-shadow: 1px 1px 3px rgba(0,0,0,0.5); 
             }}
@@ -354,7 +362,6 @@ def main():
                         unsafe_allow_html=True)
             st.markdown("---")
 
-            # Trening wczytywany z bazy z zastosowaniem przypisanej KOLEJNOŚCI
             plan_df = pd.read_sql_query("SELECT * FROM plan WHERE kategoria=%s AND username=%s ORDER BY kolejnosc ASC, id ASC", conn,
                                         params=(wybrany, usr))
             if plan_df.empty:
@@ -373,7 +380,6 @@ def main():
                     col_expander, col_done = st.columns([3, 1], vertical_alignment="center")
 
                     with col_expander:
-                        # --- SZCZEGÓŁOWY NAGŁÓWEK ---
                         if r['na_czas'] == 1:
                             header_text = f"🏋️ {r['cwiczenie']} | {int(r['serie'])}x | ⏱️ {int(r['czas'])} sekund"
                         else:
@@ -421,13 +427,11 @@ def main():
                                 w_c = total_weight if total_weight > 0 else 1
                                 pts = z['s'] * z['p'] * w_c * z['pr']
 
-                            # Zapis historii
                             c.execute(
                                 "INSERT INTO historia (data, kategoria, cwiczenie, serie, powtorzenia, obciazenie, pompa_rate, punkty_pompy, masa_wlasna, na_czas, czas, username) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                                 (str(dt), wybrany, z['c'], z['s'], z['p'], z['w'], z['pr'], pts, z['mw'], z['nc'],
                                  z['cz'], usr))
                             
-                            # Nadpisanie planu nowymi danymi na stałe
                             c.execute(
                                 "UPDATE plan SET serie=%s, powtorzenia=%s, obciazenie=%s, pompa_rate=%s, masa_wlasna=%s, na_czas=%s, czas=%s WHERE cwiczenie=%s AND kategoria=%s AND username=%s",
                                 (z['s'], z['p'], z['w'], z['pr'], z['mw'], z['nc'], z['cz'], z['c'], wybrany, usr))
@@ -471,10 +475,21 @@ def main():
                     display_df['Obciążenie/Czas'] = display_df.apply(format_obc, axis=1)
                     st.dataframe(display_df[['cwiczenie', 'serie', 'powtorzenia', 'Obciążenie/Czas']], hide_index=True,
                                  use_container_width=True)
+                    
+                    # Indywidualne usuwanie ćwiczeń z danego dnia
                     for i, r in df_day.iterrows():
-                        if st.button("Usuń", key=f"dh_{r['id']}"):
+                        if st.button(f"Usuń ćwiczenie: {r['cwiczenie']}", key=f"dh_{r['id']}"):
                             c = conn.cursor()
                             c.execute("DELETE FROM historia WHERE id=%s", (r['id'],))
+                            conn.commit()
+                            st.rerun()
+
+                    # --- PODWÓJNE ZABEZPIECZENIE USUWANIA CAŁEGO TRENINGU ---
+                    st.markdown("<hr style='margin: 1em 0px;'>", unsafe_allow_html=True)
+                    if st.toggle("🔓 Odblokuj usuwanie całego treningu z tego dnia", key=f"unlock_{d_str}"):
+                        if st.button("🚨 USUŃ CAŁY TRENING", type="primary", use_container_width=True, key=f"del_all_{d_str}"):
+                            c = conn.cursor()
+                            c.execute("DELETE FROM historia WHERE data=%s AND username=%s", (d_str, usr))
                             conn.commit()
                             st.rerun()
         else:
