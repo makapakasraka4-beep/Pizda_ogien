@@ -10,7 +10,14 @@ st.set_page_config(page_title="Mój Trening", page_icon="💪", layout="wide")
 # ----- MAGIA CSS -----
 st.markdown("""
 <style>
-/* Wygląd wierszy w starszych częściach aplikacji */
+/* Zmniejszenie bocznych marginesów na małych ekranach, żeby nie marnować cennego miejsca */
+.block-container {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+}
+
 div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"]:nth-child(odd) {
     background-color: rgba(255, 255, 255, 0.02);
     border-radius: 12px;
@@ -31,18 +38,19 @@ div[data-testid="stVerticalBlock"] > div[data-testid="stHorizontalBlock"]:nth-ch
 
 /* --- OPTYMALIZACJA STRICTE POD TELEFON (MOBILE FIRST) --- */
 input[type="number"], input[type="text"] {
-    font-size: 16px !important; 
+    font-size: 16px !important; /* Blokuje automatyczne zoomowanie ekranu na iOS */
 }
 button {
     min-height: 44px !important; 
 }
 
-/* Ujednolicony, nowoczesny design ramek (Expander) dla wszystkich planów */
+/* Ujednolicony, nowoczesny design ramek (Expander) */
 div[data-testid="stExpander"] {
     border: 1px solid rgba(255, 255, 255, 0.1) !important; 
     border-radius: 10px !important;
     background-color: rgba(255, 255, 255, 0.03) !important; 
     overflow: hidden !important; 
+    margin-bottom: 0 !important;
 }
 div[data-testid="stExpander"] summary {
     background-color: rgba(0, 0, 0, 0.2) !important; 
@@ -50,7 +58,7 @@ div[data-testid="stExpander"] summary {
 }
 div[data-testid="stExpander"] summary p {
     font-weight: 900 !important;
-    font-size: 16px !important; 
+    font-size: 15px !important; 
     line-height: 1.2 !important;
     color: #ffffff !important; 
 }
@@ -58,32 +66,33 @@ div[data-testid="stExpander"] summary svg {
     color: #ffffff !important; 
 }
 
-/* Wymuszenie przycisku "Zrobione" obok expandera */
+/* --- PERFEKCYJNE WYRÓWNANIE W RZĘDZIE NA TELEFONACH (FLEXBOX) --- */
 @media (max-width: 768px) {
     div[data-testid="stHorizontalBlock"]:has(div[data-testid="stExpander"]) {
         display: flex !important;
         flex-wrap: nowrap !important;
         align-items: center !important;
+        justify-content: space-between !important;
+        width: 100% !important;
+        gap: 8px !important;
     }
-    div[data-testid="stHorizontalBlock"]:has(div[data-testid="stExpander"]) > div[data-testid="column"] {
-        min-width: 0 !important;
-        width: auto !important;
-    }
+    /* Lewa strona z ćwiczeniem zajmuje tyle miejsca, ile to możliwe */
     div[data-testid="stHorizontalBlock"]:has(div[data-testid="stExpander"]) > div[data-testid="column"]:nth-child(1) {
-        flex: 1 1 72% !important;
-        width: 72% !important;
+        flex: 1 1 auto !important;
+        width: auto !important;
+        min-width: 0 !important; 
     }
+    /* Prawa strona z przełącznikiem zajmuje tylko niezbędne minimum */
     div[data-testid="stHorizontalBlock"]:has(div[data-testid="stExpander"]) > div[data-testid="column"]:nth-child(2) {
-        flex: 1 1 28% !important;
-        width: 28% !important;
-        display: flex;
-        justify-content: flex-end; 
+        flex: 0 0 auto !important;
+        width: auto !important;
+        min-width: fit-content !important;
     }
 }
 </style>
 """, unsafe_allow_html=True)
 
-# Pobieranie tajnego klucza bazy z sekretów Streamlita
+# Pobieranie tajnego klucza bazy
 try:
     DB_URI = st.secrets["DB_URI"]
 except:
@@ -212,7 +221,8 @@ def render_zarzadzanie_planem(cat_id, kategoria_nazwa, ikona, kolor):
     edit_key = f"edit_id_{cat_id}_{usr}"
     if edit_key not in st.session_state: st.session_state[edit_key] = None
 
-    st.markdown(f"<h3 style='color: {kolor};'>{ikona} Edytujesz Plan: {kategoria_nazwa}</h3>", unsafe_allow_html=True)
+    st.markdown(f"<h3 style='color: {kolor}; margin-bottom: 0px;'>{ikona} Edytujesz Plan: {kategoria_nazwa}</h3>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
 
     if not df_plan.empty:
         for idx, row in df_plan.iterrows():
@@ -332,7 +342,6 @@ def main():
         unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # TYLKO 4 GŁÓWNE ZAKŁADKI
     tabs_names = ["📋 Dzisiejszy Trening", "📈 Statystyki", "📏 Pomiary", "⚙️ Ustawienia Planów"]
     all_tabs = st.tabs(tabs_names)
 
@@ -344,7 +353,6 @@ def main():
             dt = st.date_input("Wybierz Datę Treningu", datetime.today())
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # --- ZAKŁADKI ZAMIAST RADIA (Aby nic nie znikało) ---
             cat_names_with_icons = [f"{r['icon']} {r['name']}" for _, r in categories_df.iterrows()]
             dzisiejszy_tabs = st.tabs(cat_names_with_icons)
 
@@ -354,8 +362,24 @@ def main():
                     ikona = cat_row['icon']
                     kolor = cat_row['color']
                     
-                    # Unikalny reset_counter tylko dla tej kategorii
                     rc = st.session_state[f"rc_{wybrany}"]
+
+                    # Nadanie kolorów nagłówkowi i delikatnej poświaty dla ramek ćwiczeń z danej kategorii
+                    hex_c = kolor.lstrip('#')
+                    if len(hex_c) == 6:
+                        r, g, b = tuple(int(hex_c[i:i+2], 16) for i in (0, 2, 4))
+                        bg_rgba = f"rgba({r}, {g}, {b}, 0.15)"
+                    else:
+                        bg_rgba = "rgba(255, 255, 255, 0.1)"
+
+                    st.markdown(f"""
+                    <style>
+                    /* Pokolorowanie konkretnej zakładki dla czytelności */
+                    div[data-testid="stTabs"] button[data-baseweb="tab"]:nth-child({i+1})[aria-selected="true"] {{
+                        border-bottom-color: {kolor} !important;
+                    }}
+                    </style>
+                    """, unsafe_allow_html=True)
 
                     st.markdown(f"<h3 style='color: {kolor}; margin-bottom: 0px;'>{ikona} Trening: {wybrany}</h3>", unsafe_allow_html=True)
                     st.markdown("---")
@@ -371,41 +395,42 @@ def main():
                         if plan_df['masa_wlasna'].any() and latest_weight == 0.0:
                             st.warning("⚠️ Masz ćwiczenia z masą własną, ale nie uzupełniłeś zakładki Pomiary. System policzy wagę ciała jako 0 kg.")
 
-                        for idx, r in plan_df.iterrows():
+                        for idx, r_row in plan_df.iterrows():
+                            # Wąski kontener na flexboxie z CSS-a wyżej
                             col_expander, col_done = st.columns([3, 1], vertical_alignment="center")
 
                             with col_expander:
-                                if r['na_czas'] == 1:
-                                    header_text = f"🏋️ {r['cwiczenie']} | {int(r['serie'])}x | ⏱️ {int(r['czas'])} sekund"
+                                if r_row['na_czas'] == 1:
+                                    header_text = f"🏋️ {r_row['cwiczenie']} | {int(r_row['serie'])}x | ⏱️ {int(r_row['czas'])} s"
                                 else:
-                                    waga_str = f"Masa wł. + {r['obciazenie']:g}kg" if r['masa_wlasna'] and r['obciazenie'] > 0 else (
-                                        "Masa wł." if r['masa_wlasna'] else f"{r['obciazenie']:g}kg")
-                                    header_text = f"🏋️ {r['cwiczenie']} | {int(r['serie'])}x{int(r['powtorzenia'])} | {waga_str}"
+                                    waga_str = f"Wł. + {r_row['obciazenie']:g}kg" if r_row['masa_wlasna'] and r_row['obciazenie'] > 0 else (
+                                        "Masa wł." if r_row['masa_wlasna'] else f"{r_row['obciazenie']:g}kg")
+                                    header_text = f"🏋️ {r_row['cwiczenie']} | {int(r_row['serie'])}x{int(r_row['powtorzenia'])} | {waga_str}"
 
                                 with st.expander(header_text):
-                                    if r['na_czas'] == 1:
+                                    if r_row['na_czas'] == 1:
                                         c_in1, c_in2 = st.columns(2)
-                                        s = c_in1.number_input("Serie", value=int(r['serie']), key=f"s_{r['id']}_{rc}")
-                                        cz = c_in2.number_input("Czas (s)", value=int(r['czas']), key=f"cz_{r['id']}_{rc}")
-                                        pompa = st.number_input("Pompa (1-5)", 1, 5, int(r['pompa_rate']), key=f"pr_{r['id']}_{rc}")
+                                        s = c_in1.number_input("Serie", value=int(r_row['serie']), key=f"s_{r_row['id']}_{rc}")
+                                        cz = c_in2.number_input("Czas (s)", value=int(r_row['czas']), key=f"cz_{r_row['id']}_{rc}")
+                                        pompa = st.number_input("Pompa (1-5)", 1, 5, int(r_row['pompa_rate']), key=f"pr_{r_row['id']}_{rc}")
                                         p, w, mw = 0, 0.0, 0
                                     else:
                                         c_in1, c_in2 = st.columns(2)
-                                        s = c_in1.number_input("Serie", value=int(r['serie']), key=f"s_{r['id']}_{rc}")
-                                        p = c_in2.number_input("Powt.", value=int(r['powtorzenia']), key=f"p_{r['id']}_{rc}")
+                                        s = c_in1.number_input("Serie", value=int(r_row['serie']), key=f"s_{r_row['id']}_{rc}")
+                                        p = c_in2.number_input("Powt.", value=int(r_row['powtorzenia']), key=f"p_{r_row['id']}_{rc}")
                                         
                                         c_in3, c_in4 = st.columns(2, vertical_alignment="bottom")
-                                        mw = c_in3.toggle("Masa wł.", value=bool(r['masa_wlasna']), key=f"mw_{r['id']}_{rc}")
-                                        w = c_in4.number_input("+ Kg" if mw else "Kg", value=float(r['obciazenie']), key=f"w_{r['id']}_{rc}")
+                                        mw = c_in3.toggle("Masa wł.", value=bool(r_row['masa_wlasna']), key=f"mw_{r_row['id']}_{rc}")
+                                        w = c_in4.number_input("+ Kg" if mw else "Kg", value=float(r_row['obciazenie']), key=f"w_{r_row['id']}_{rc}")
                                         
-                                        pompa = st.number_input("Pompa (1-5)", 1, 5, int(r['pompa_rate']), key=f"pr_{r['id']}_{rc}")
+                                        pompa = st.number_input("Pompa (1-5)", 1, 5, int(r_row['pompa_rate']), key=f"pr_{r_row['id']}_{rc}")
                                         cz = 0
 
                             with col_done:
-                                if st.toggle("Zrobione", key=f"z_{r['id']}_{rc}"):
-                                    zrobione.append({'c': r['cwiczenie'], 's': s, 'p': p, 'w': w, 'pr': pompa, 'mw': int(mw), 'nc': int(r['na_czas']), 'cz': cz})
+                                if st.toggle("Zrobione", key=f"z_{r_row['id']}_{rc}"):
+                                    zrobione.append({'c': r_row['cwiczenie'], 's': s, 'p': p, 'w': w, 'pr': pompa, 'mw': int(mw), 'nc': int(r_row['na_czas']), 'cz': cz})
                             
-                            st.markdown("<hr style='margin: 0.2em 0px; opacity: 0.2;'>", unsafe_allow_html=True)
+                            st.markdown("<hr style='margin: 0.2em 0px; opacity: 0.1;'>", unsafe_allow_html=True)
 
                         st.markdown("<br>", unsafe_allow_html=True)
                         if st.button(f"🔥 ZAPISZ TRENING: {wybrany.upper()} 🔥", type="primary", use_container_width=True, key=f"save_btn_{wybrany}"):
@@ -429,20 +454,58 @@ def main():
                                         (z['s'], z['p'], z['w'], z['pr'], z['mw'], z['nc'], z['cz'], z['c'], wybrany, usr))
                                 
                                 conn.commit()
-                                # Zwiększamy counter tylko dla zapisanej kategorii, reszta zostaje nietknięta!
                                 st.session_state[f"rc_{wybrany}"] += 1
                                 st.rerun()
 
     # 2. STATYSTYKI
     with all_tabs[1]:
         hist = pd.read_sql_query("SELECT * FROM historia WHERE username=%s ORDER BY data DESC", conn, params=(usr,))
+        
         if not hist.empty:
+            # --- SEKCJA: PROGRES POSZCZEGÓLNYCH ĆWICZEŃ ---
+            st.markdown("### 📈 Progres w ćwiczeniach")
+            
+            hist_cats = hist['kategoria'].unique().tolist()
+            if hist_cats:
+                kol_stat1, kol_stat2 = st.columns(2)
+                wybrana_kat_stat = kol_stat1.selectbox("Wybierz plan do analizy:", hist_cats)
+                
+                hist_cw_filtered = hist[hist['kategoria'] == wybrana_kat_stat]
+                cwiczenia_w_kat = hist_cw_filtered['cwiczenie'].unique().tolist()
+                
+                wybrane_cw_stat = kol_stat2.selectbox("Wybierz ćwiczenie:", cwiczenia_w_kat)
+                
+                if wybrane_cw_stat:
+                    df_chart = hist_cw_filtered[hist_cw_filtered['cwiczenie'] == wybrane_cw_stat].copy()
+                    is_time_based = df_chart['na_czas'].iloc[0] == 1
+                    
+                    if is_time_based:
+                        # Maksymalny czas danego dnia
+                        df_plot = df_chart.groupby('data')['czas'].max().reset_index()
+                        df_plot = df_plot.sort_values('data')
+                        fig_prog = px.line(df_plot, x='data', y='czas', markers=True, title=f"Najlepszy czas: {wybrane_cw_stat} (sekundy)")
+                        fig_prog.update_traces(line_color="#00CCFF")
+                        fig_prog.update_layout(yaxis_title="Czas [s]", xaxis_title="")
+                    else:
+                        # Maksymalne obciążenie danego dnia
+                        df_plot = df_chart.groupby('data')['obciazenie'].max().reset_index()
+                        df_plot = df_plot.sort_values('data')
+                        fig_prog = px.line(df_plot, x='data', y='obciazenie', markers=True, title=f"Największe obciążenie: {wybrane_cw_stat} (kg)")
+                        fig_prog.update_traces(line_color="#FF4B4B")
+                        fig_prog.update_layout(yaxis_title="Obciążenie dodane [kg]", xaxis_title="")
+                        
+                    st.plotly_chart(fig_prog, use_container_width=True)
+
+            st.markdown("---")
+            # --- SEKCJA: SUMA POMPY ---
             wykres_df = hist.groupby(['data', 'kategoria'])['punkty_pompy'].sum().reset_index()
             color_map = dict(zip(categories_df['name'], categories_df['color']))
             fig = px.bar(wykres_df, x='data', y='punkty_pompy', color='kategoria', color_discrete_map=color_map,
                          title="🔥 Suma punktów pompy w dniach")
             st.plotly_chart(fig, use_container_width=True)
-
+            
+            st.markdown("---")
+            # --- SEKCJA: HISTORIA TRENINGÓW ---
             st.markdown("### 📅 Historia Twoich Treningów")
             unique_dates = hist['data'].unique()
             for d_str in unique_dates:
@@ -501,17 +564,15 @@ def main():
             px.line(p_df, x='data', y='waga', markers=True, color_discrete_sequence=['#FFD700']),
             use_container_width=True)
 
-    # 4. USTAWIENIA PLANÓW (Połączone)
+    # 4. USTAWIENIA PLANÓW
     with all_tabs[3]:
         st.markdown("## ⚙️ Ustawienia i Zarządzanie")
         
-        # Wygodne rozwijane menu do przełączania się między planami a kategoriami
         opcje_menu = ["🗂️ Zarządzaj Kategoriami (Dodaj / Usuń Plan)"] + [f"{r['icon']} {r['name']}" for _, r in categories_df.iterrows()]
         wybor_edycji = st.selectbox("Wybierz co chcesz edytować:", opcje_menu)
         
         st.markdown("---")
 
-        # Jeśli wybrano edycję głównych kategorii
         if wybor_edycji == "🗂️ Zarządzaj Kategoriami (Dodaj / Usuń Plan)":
             edit_cat_key = f"edit_cat_{usr}"
             if edit_cat_key not in st.session_state: st.session_state[edit_cat_key] = None
@@ -559,7 +620,6 @@ def main():
                     conn.commit()
                     st.rerun()
         
-        # Jeśli wybrano edycję konkretnego planu z listy
         else:
             for idx, row in categories_df.iterrows():
                 if f"{row['icon']} {row['name']}" == wybor_edycji:
