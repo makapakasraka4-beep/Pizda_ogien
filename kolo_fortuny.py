@@ -2,7 +2,7 @@
 KOŁO FORTUNY
 ============
 Uruchomienie:
-    pip install pygame
+    pip install pygame-ce      (działa też na najnowszym Pythonie; zwykły "pygame" też OK)
     python kolo_fortuny.py
 
 Sterowanie:
